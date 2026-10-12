@@ -3537,8 +3537,8 @@ function saveLog(){ DB.set('log', LOG); }
 
 // Call this after every user action to record it
 function addLog(modulo, accion, detalle){
-  // Get current user (first admin for now — backend will pass session user)
-  const curUser = USERS?.[0] || {nombre:'Sistema', rol:'sistema'};
+  const sesion = Auth.getUser();
+  const curUser = sesion ? {nombre: sesion.nombre, rol: sesion.rol} : {nombre:'Sistema', rol:'sistema'};
   LOG.push({
     id: uid(),
     ts: new Date().toISOString(),
