@@ -64,6 +64,7 @@ td{padding:9px 14px;border-bottom:0.5px solid var(--brd);color:var(--tx)}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--bg2)}
 .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:500}
+.badge.amb{background:var(--amber-bg);color:var(--amber)}
 .ok{background:var(--green-bg);color:var(--green)}
 .low{background:var(--amber-bg);color:var(--amber)}
 .out{background:var(--red-bg);color:var(--red)}
@@ -2308,10 +2309,12 @@ function rConteos(C,A){
       <td>${p.cat||'-'}</td>
       <td style="text-align:center">
         ${capturado
-          ?`<span class="badge ok">&#10003; Contado</span>`
+          ?`<span class="badge ${confirmado?'ok':'amb'}">&#10003; ${confirmado?'Confirmado':'Capturado'}</span>`
           :`<span class="badge low">Pendiente</span>`}
       </td>
-      <td><strong>${capturado?val:'-'}</strong> ${p.ml?p.ml+'ml':''}</td>
+      <td style="${capturado&&!confirmado?'background:var(--amber-bg);font-weight:700;color:var(--amber)':''}">
+        <strong>${capturado?val:'-'}</strong> ${p.ml?p.ml+'ml':''}
+      </td>
       <td>${!bloqueado
         ?`<button class="btn sm" onclick="editConteo('${p.sku}')">${capturado?'Editar':'Capturar'}</button>`
         :`<span style="font-size:11px;color:var(--tx3)">🔒 Bloqueado</span>`}
@@ -4055,6 +4058,18 @@ function doLogout(){
   Auth.clearToken();
   location.reload();
 }
+
+// ── Recarga automática de datos cada 30 segundos ──────────────────────────
+let _autoReloadPaused = false;
+setInterval(async () => {
+  if(_autoReloadPaused || !Auth.isLoggedIn()) return;
+  try {
+    await DB._loadAll();
+    // Refresca la página actual silenciosamente
+    const page = document.querySelector('.ni.active')?.getAttribute('onclick')?.match(/nav\('(\w+)'\)/)?.[1];
+    if(page) rPage(page);
+  } catch(e){ /* silencioso */ }
+}, 30000);
 </script>
 </body>
 </html>
