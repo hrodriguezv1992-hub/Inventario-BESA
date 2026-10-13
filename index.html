@@ -1498,9 +1498,40 @@ function ejecutarCierreDia(){
   d.cerrado=true;
   addLog('inv','Cierre de día',`Día ${fecha} cerrado — ${count} ajuste(s) generados`);
   saveDD();saveProds();
+  // Guardar movimientos del día en historial (tabla movimientos en BD)
+  guardarMovimientosCierre(fecha, d);
   curDate=new Date(curDate);curDate.setDate(curDate.getDate()+1);
   rPage('inv');
   toast(count>0?`✓ Día cerrado — ${count} ajuste(s) enviados a Ajustes`:'✓ Día cerrado — sin diferencias');
+}
+
+async function guardarMovimientosCierre(fecha, d){
+  // Mapeo módulo → tipo en BD
+  const MODS=[
+    {mod:'ventas',    tipo:'venta',      folioF:'folio'},
+    {mod:'compras',   tipo:'compra',     folioF:'factura', grupoF:'ordenCompra'},
+    {mod:'devoluciones',tipo:'devolucion',folioF:'motivo'},
+    {mod:'mermas',    tipo:'merma',      folioF:'motivo'},
+    {mod:'cargas',    tipo:'carga',      folioF:'folio'},
+    {mod:'nocargado', tipo:'nocargado',  folioF:'folio'},
+    {mod:'ajustes',   tipo:'ajuste',     folioF:'motivo'},
+  ];
+  for(const {mod,tipo,folioF,grupoF} of MODS){
+    const items=(d[mod]||[]).map(r=>({
+      sku: r.sku,
+      cantidad: Number(r.qty||r.qty_despues||0),
+      folio: r[folioF]||null,
+      costo: r.costo||null,
+      grupo_importacion: grupoF?r[grupoF]||null:null,
+    }));
+    if(items.length===0) continue;
+    try{
+      await apiFetch('/api/movimientos/batch',{
+        method:'POST',
+        body:JSON.stringify({fecha, tipo, items, confirmado:true})
+      });
+    }catch(e){ console.warn('No se pudo guardar historial de',mod,e.message); }
+  }
 }
 
 // ── Pedido ─────────────────────────────────────────────────────────────────
