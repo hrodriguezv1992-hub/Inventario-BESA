@@ -2145,20 +2145,82 @@ function setDias(sku,val,input){
 
 // ── Reportes ───────────────────────────────────────────────────────────────
 function rReportes(C,A){
-  A.innerHTML=`<button class="btn p" onclick="toast('Exportando...')">&#8681; Exportar Excel</button>`;
-  C.innerHTML=`<div class="rf"><div class="fg"><label>Módulo</label><select id="rm" onchange="updR()"><option value="ventas">Ventas</option><option value="compras">Compras</option><option value="devoluciones">Devoluciones</option><option value="mermas">Mermas</option><option value="cargas">Cargas</option><option value="nocargado">No cargado</option><option value="ajustes">Ajustes</option></select></div><div class="fg"><label>Fecha inicio</label><input type="date" id="rf1" value="2025-01-13" onchange="updR()"></div><div class="fg"><label>Fecha fin</label><input type="date" id="rf2" value="2025-01-15" onchange="updR()"></div><button class="btn" onclick="updR()">Aplicar</button></div><div id="rr"></div>`;
-  updR();
+  const hoy=new Date(),hace7=new Date(hoy);hace7.setDate(hoy.getDate()-7);
+  const fmt=d=>d.toISOString().slice(0,10);
+  A.innerHTML=`<button class="btn p" onclick="exportRExcel()">&#8681; Exportar Excel</button>`;
+  C.innerHTML=`<div class="rf">
+    <div class="fg"><label>Módulo</label><select id="rm" onchange="updR()">
+      <option value="ventas">Ventas</option>
+      <option value="compras">Compras</option>
+      <option value="devoluciones">Devoluciones</option>
+      <option value="mermas">Mermas</option>
+      <option value="cargas">Cargas</option>
+      <option value="nocargado">No cargado</option>
+      <option value="ajustes">Ajustes</option>
+    </select></div>
+    <div class="fg"><label>Fecha inicio</label><input type="date" id="rf1" value="${fmt(hace7)}"></div>
+    <div class="fg"><label>Fecha fin</label><input type="date" id="rf2" value="${fmt(hoy)}"></div>
+    <button class="btn" onclick="updR()">Aplicar</button>
+  </div><div id="rr"><div class="es">Selecciona un rango y presiona Aplicar</div></div>`;
 }
-function updR(){
+
+// Mapeo tipo frontend → tipo en BD
+const TIPO_BD={ventas:'venta',compras:'compra',devoluciones:'devolucion',mermas:'merma',cargas:'carga',nocargado:'nocargado',ajustes:'ajuste'};
+// Columnas a mostrar por módulo (campo BD → etiqueta)
+const R_COLS={
+  ventas:     [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Folio'}],
+  compras:    [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Factura'},{k:'costo',l:'Costo unit.'},{k:'grupo_importacion',l:'Grupo'}],
+  devoluciones:[{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Motivo'}],
+  mermas:     [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Motivo'}],
+  cargas:     [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Folio'}],
+  nocargado:  [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'}],
+  ajustes:    [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad nueva'},{k:'folio',l:'Motivo'}],
+};
+let _rData=[];
+
+async function updR(){
   const mod=document.getElementById('rm')?.value||'ventas';
   const from=document.getElementById('rf1')?.value,to=document.getElementById('rf2')?.value;
-  const cfg=MC[mod];let all=[];
-  Object.keys(DD).filter(d=>(!from||d>=from)&&(!to||d<=to)).sort().forEach(d=>(DD[d][mod]||[]).forEach(r=>all.push({...r,fecha:d})));
-  const tQ=all.reduce((a,r)=>a+Number(r.qty||0),0),tV=all.reduce((a,r)=>a+Number(r.total||0),0);
-  const stats=`<div class="sr" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px"><div class="sc"><div class="sl">Total registros</div><div class="sv">${all.length}</div></div><div class="sc"><div class="sl">Total unidades</div><div class="sv">${tQ}</div></div>${tV?`<div class="sc"><div class="sl">Total valor</div><div class="sv">$${tV.toLocaleString()}</div></div>`:`<div class="sc"><div class="sl">Días</div><div class="sv">${new Set(all.map(r=>r.fecha)).size}</div></div>`}</div>`;
-  const table=all.length===0?`<div class="tw"><div class="es">Sin datos para el rango seleccionado</div></div>`
-    :`<div class="tw"><table><thead><tr>${['Fecha',...cfg.h].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${all.map(r=>`<tr>${['fecha',...cfg.f].map(f=>`<td>${r[f]??'-'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  const el=document.getElementById('rr');if(el)el.innerHTML=stats+table;
+  const el=document.getElementById('rr');
+  if(!from||!to){if(el)el.innerHTML=`<div class="es">Selecciona fechas de inicio y fin</div>`;return;}
+  if(el)el.innerHTML=`<div class="es">Cargando...</div>`;
+  const tipo=TIPO_BD[mod]||mod;
+  try{
+    // Traer todos los días del rango (un request por día sería costoso; traemos sin filtro de fecha en el endpoint y filtramos aquí)
+    // El endpoint acepta ?tipo=X, filtramos fecha en JS
+    const rows=await apiFetch(`/api/movimientos?tipo=${tipo}&desde=${from}&hasta=${to}`);
+    _rData=rows.sort((a,b)=>a.fecha>b.fecha?1:-1);
+    const cols=R_COLS[mod]||[{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'}];
+    const tQ=_rData.reduce((a,r)=>a+Number(r.cantidad||0),0);
+    const dias=new Set(_rData.map(r=>r.fecha)).size;
+    const stats=`<div class="sr" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+      <div class="sc"><div class="sl">Total registros</div><div class="sv">${_rData.length}</div></div>
+      <div class="sc"><div class="sl">Total unidades</div><div class="sv">${tQ.toLocaleString()}</div></div>
+      <div class="sc"><div class="sl">Días</div><div class="sv">${dias}</div></div>
+    </div>`;
+    const table=_rData.length===0
+      ?`<div class="tw"><div class="es">Sin datos para el rango seleccionado</div></div>`
+      :`<div class="tw"><table><thead><tr>${cols.map(c=>`<th>${c.l}</th>`).join('')}</tr></thead>
+         <tbody>${_rData.map(r=>`<tr>${cols.map(c=>`<td>${r[c.k]??'-'}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table></div>`;
+    if(el)el.innerHTML=stats+table;
+  }catch(e){if(el)el.innerHTML=`<div class="es">Error al cargar datos</div>`;}
+}
+
+function exportRExcel(){
+  if(!_rData||_rData.length===0){toast('Sin datos para exportar');return;}
+  const mod=document.getElementById('rm')?.value||'reporte';
+  const from=document.getElementById('rf1')?.value||'',to=document.getElementById('rf2')?.value||'';
+  const cols=R_COLS[mod]||[{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'}];
+  const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const header=cols.map(c=>esc(c.l)).join(',');
+  const rows=_rData.map(r=>cols.map(c=>esc(r[c.k]??'')).join(','));
+  const csv='﻿'+[header,...rows].join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=`reporte_${mod}_${from}_${to}.csv`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  toast('Archivo descargado');
 }
 
 
