@@ -1444,7 +1444,35 @@ function rInv(C,A){
         ?`<span class="${r.diff>=0?'dp':'dn2'}">${r.diff>=0?'+':''}${r.diff}</span>`
         :'-'}
       </td>
-    </tr>`).join('')}</tbody></table></div>
+    </tr>`).join('')}
+    ${(()=>{
+      const T=(f)=>rows.reduce((a,r)=>a+Number(r[f]||0),0);
+      const totC=T('c'),totDv=T('dv'),totEnt=T('ent');
+      const totV=T('v'),totCa=T('ca'),totM=T('m');
+      const totBase=rows.reduce((a,r)=>a+Number(r.stockBase||0),0);
+      const totTeo=rows.reduce((a,r)=>a+Number(r.teo||0),0);
+      const totConteo=rows.filter(r=>r.tieneConteo).reduce((a,r)=>a+Number(r.pisoVal||0),0);
+      const totPte=rows.reduce((a,r)=>a+Number(r.pte||0),0);
+      const totFinal=rows.filter(r=>r.invFinal!==null).reduce((a,r)=>a+Number(r.invFinal||0),0);
+      const totDiff=rows.filter(r=>r.diff!==null).reduce((a,r)=>a+Number(r.diff||0),0);
+      const hasDiff=rows.some(r=>r.diff!==null);
+      return `<tr style="background:var(--bg3,var(--bg2));font-weight:700;border-top:2px solid var(--bd);position:sticky;bottom:0">
+        <td colspan="2" style="color:var(--tx3);font-size:12px;text-transform:uppercase;letter-spacing:.5px">TOTALES</td>
+        <td>${totBase.toLocaleString('es-MX')}</td>
+        <td>${totC?totC.toLocaleString('es-MX'):'-'}</td>
+        <td>${totDv?totDv.toLocaleString('es-MX'):'-'}</td>
+        <td class="tot">${totEnt?totEnt.toLocaleString('es-MX'):'-'}</td>
+        <td>${totV?totV.toLocaleString('es-MX'):'-'}</td>
+        <td>${totCa?totCa.toLocaleString('es-MX'):'-'}</td>
+        <td>${totM?totM.toLocaleString('es-MX'):'-'}</td>
+        <td class="tot">${totTeo.toLocaleString('es-MX')}</td>
+        <td>${totConteo?totConteo.toLocaleString('es-MX'):'-'}</td>
+        <td style="color:var(--amber)">${totPte?totPte.toLocaleString('es-MX'):'-'}</td>
+        <td style="color:var(--green)">${totFinal?totFinal.toLocaleString('es-MX'):'-'}</td>
+        <td>${hasDiff?`<span class="${totDiff>=0?'dp':'dn2'}">${totDiff>=0?'+':''}${totDiff.toLocaleString('es-MX')}</span>`:'-'}</td>
+      </tr>`;
+    })()}
+    </tbody></table></div>
     <p style="font-size:12px;color:var(--tx3);margin-top:10px">Los conteos provienen del módulo Conteos. Al confirmar el cierre, las diferencias se registran automáticamente en Ajustes.</p>`;
 }
 function cerrarDia(){
