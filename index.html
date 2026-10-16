@@ -2219,16 +2219,22 @@ function rReportes(C,A){
     <button class="btn" onclick="updR()">Aplicar</button>
   </div>
   <style>
-    #rr-pivot{overflow-x:auto;margin-top:16px}
-    #rr-pivot table{border-collapse:collapse;font-size:12px;white-space:nowrap;min-width:100%}
-    #rr-pivot th,#rr-pivot td{padding:4px 10px;border:1px solid var(--border);text-align:right}
-    #rr-pivot th{background:var(--surface);font-weight:600}
-    #rr-pivot td.pname{text-align:left;max-width:220px;overflow:hidden;text-overflow:ellipsis}
-    #rr-pivot td.sku-col{text-align:center;color:var(--muted);font-size:11px}
-    #rr-pivot tr:hover td{background:var(--hover)}
-    #rr-pivot th.day-hd{background:var(--primary);color:#fff;text-align:center}
-    #rr-pivot td.zero{color:var(--muted)}
-    #rr-pivot tr.total-row td{font-weight:700;background:var(--surface)}
+    #rr-pivot{overflow-x:auto;margin-top:12px;border-radius:10px;border:1px solid var(--border)}
+    #rr-pivot table{border-collapse:collapse;font-size:12px;white-space:nowrap;width:100%}
+    #rr-pivot th,#rr-pivot td{padding:5px 10px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);text-align:right}
+    #rr-pivot th:last-child,#rr-pivot td:last-child{border-right:none}
+    #rr-pivot th{background:#f8f9fa;font-weight:600;font-size:11px;color:#555;letter-spacing:.3px}
+    #rr-pivot td.pname{text-align:left;max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#333}
+    #rr-pivot td.sku-col{text-align:center;color:#888;font-size:11px;font-weight:500}
+    #rr-pivot tbody tr:hover td{background:#f0f4ff}
+    #rr-pivot th.day-hd{background:#3b5bdb;color:#fff;text-align:center;font-size:12px;font-weight:700}
+    #rr-pivot th.fix-hd{background:#f0f0f0;text-align:left}
+    #rr-pivot th.tot-hd{background:#1c3faa;color:#fff;text-align:center}
+    #rr-pivot td.zero{color:#ccc}
+    #rr-pivot td.tot-col{font-weight:700;background:#eef2ff;color:#1c3faa;border-right:none}
+    #rr-pivot tr.total-row td{font-weight:700;background:#eef2ff;color:#1c3faa;border-top:2px solid #3b5bdb}
+    #rr-pivot tr.total-row td.pname,#rr-pivot tr.total-row td.sku-col{color:#1c3faa}
+    #rr-pivot tbody tr:last-child td{border-bottom:none}
   </style>
   <div id="rr"><div class="es">Selecciona un rango y presiona Aplicar</div></div>
   <div id="rr-pivot"></div>`;
@@ -2272,19 +2278,35 @@ async function updR(){
       totCol[d]=skusSorted.reduce((s,sku)=>s+(pivot[sku]?.[d]||0),0);
     });
 
-    const thead=`<tr><th>SKU</th><th>Producto</th>${dias.map(d=>`<th class="day-hd">${fmtDia(d)}</th>`).join('')}<th class="day-hd">Total</th></tr>`;
+    // Normalizar fechas a YYYY-MM-DD (quitar timestamp si viene con T...)
+    const normFecha=f=>f?f.slice(0,10):f;
+    const diasNorm=dias.map(normFecha);
+    // Re-pivot con fechas normalizadas
+    const pivot2={};
+    _rData.forEach(r=>{
+      const sku=String(r.sku), fd=normFecha(r.fecha);
+      if(!pivot2[sku])pivot2[sku]={};
+      pivot2[sku][fd]=(pivot2[sku][fd]||0)+Number(r.cantidad||0);
+    });
+    const totCol2={};
+    diasNorm.forEach(d=>{
+      totCol2[d]=skusSorted.reduce((s,sku)=>s+(pivot2[sku]?.[d]||0),0);
+    });
+
+    const thead=`<tr><th class="fix-hd" style="width:52px">SKU</th><th class="fix-hd">Producto</th>${diasNorm.map(d=>`<th class="day-hd">${fmtDia(d)}</th>`).join('')}<th class="tot-hd">Total</th></tr>`;
 
     const tbody=skusSorted.map(sku=>{
       let rowTotal=0;
-      const cells=dias.map(d=>{
-        const v=pivot[sku]?.[d]||0;
+      const cells=diasNorm.map(d=>{
+        const v=pivot2[sku]?.[d]||0;
         rowTotal+=v;
         return `<td class="${v===0?'zero':''}">${v===0?'-':v.toLocaleString()}</td>`;
       }).join('');
-      return `<tr><td class="sku-col">${sku}</td><td class="pname">${nomProd[sku]||'-'}</td>${cells}<td>${rowTotal.toLocaleString()}</td></tr>`;
+      return `<tr><td class="sku-col">${sku}</td><td class="pname">${nomProd[sku]||'-'}</td>${cells}<td class="tot-col">${rowTotal.toLocaleString()}</td></tr>`;
     }).join('');
 
-    const totRow=`<tr class="total-row"><td colspan="2">TOTAL</td>${dias.map(d=>`<td>${(totCol[d]||0).toLocaleString()}</td>`).join('')}<td>${Object.values(totCol).reduce((a,b)=>a+b,0).toLocaleString()}</td></tr>`;
+    const grandTotal=Object.values(totCol2).reduce((a,b)=>a+b,0);
+    const totRow=`<tr class="total-row"><td class="sku-col"></td><td class="pname">TOTAL</td>${diasNorm.map(d=>`<td>${(totCol2[d]||0).toLocaleString()}</td>`).join('')}<td class="tot-col">${grandTotal.toLocaleString()}</td></tr>`;
 
     const totalUnidades=_rData.reduce((a,r)=>a+Number(r.cantidad||0),0);
     if(el)el.innerHTML=`<div class="sr" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">
