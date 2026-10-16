@@ -1335,6 +1335,7 @@ function rInv(C,A){
     <button class="btn" onclick="nav('conteos')">🔢 Ir a Conteos</button>
     ${!cerrado?`<button class="btn s" onclick="cerrarDia()">&#10003; Confirmar cierre de día</button><button class="btn" onclick="saltarDia()" title="Saltar este día (inhábil)" style="margin-left:6px">⏭ Saltar día</button>`:`
       <span class="badge vig" style="padding:6px 16px;font-size:13px">&#10003; Día cerrado</span>
+      <button class="btn" style="color:var(--blue);border-color:var(--blue)" onclick="reenviarHistorial()" title="Reenviar movimientos del día al historial (Reportes)">&#8679; Reenviar historial</button>
       <button class="btn" style="color:var(--amber);border-color:var(--amber)" onclick="reabrirDia()" title="Reabrir este día para modificaciones">&#9888; Reabrir día</button>
     `}`;
 
@@ -1505,7 +1506,7 @@ function ejecutarCierreDia(){
   toast(count>0?`✓ Día cerrado — ${count} ajuste(s) enviados a Ajustes`:'✓ Día cerrado — sin diferencias');
 }
 
-async function guardarMovimientosCierre(fecha, d){
+async function guardarMovimientosCierre(fecha, d, silencioso=false){
   // Mapeo módulo → tipo en BD
   const MODS=[
     {mod:'ventas',    tipo:'venta',      folioF:'folio'},
@@ -1516,6 +1517,7 @@ async function guardarMovimientosCierre(fecha, d){
     {mod:'nocargado', tipo:'nocargado',  folioF:'folio'},
     {mod:'ajustes',   tipo:'ajuste',     folioF:'motivo'},
   ];
+  let errores=0, guardados=0;
   for(const {mod,tipo,folioF,grupoF} of MODS){
     const items=(d[mod]||[]).map(r=>({
       sku: r.sku,
@@ -1530,8 +1532,28 @@ async function guardarMovimientosCierre(fecha, d){
         method:'POST',
         body:JSON.stringify({fecha, tipo, items, confirmado:true})
       });
-    }catch(e){ console.warn('No se pudo guardar historial de',mod,e.message); }
+      guardados++;
+    }catch(e){
+      console.warn('No se pudo guardar historial de',mod,e.message);
+      errores++;
+    }
   }
+  if(!silencioso){
+    if(errores>0 && guardados===0) toast('⚠ No se pudo guardar el historial. Usa "Reenviar historial" después.');
+    else if(errores>0) toast(`⚠ Historial parcial guardado (${errores} módulo(s) fallaron).`);
+  }
+  return {guardados, errores};
+}
+
+async function reenviarHistorial(){
+  const fecha=fmtDd(curDate);
+  const d=DD[fecha];
+  if(!d||!d.cerrado){toast('Este día no está cerrado');return;}
+  toast('Guardando historial...');
+  const {guardados,errores}=await guardarMovimientosCierre(fecha, d, true);
+  if(errores===0) toast(`✓ Historial guardado correctamente (${guardados} módulo(s))`);
+  else if(guardados===0) toast('⚠ Error al guardar. Verifica tu sesión e intenta de nuevo.');
+  else toast(`⚠ Parcial: ${guardados} guardados, ${errores} fallaron.`);
 }
 
 // ── Pedido ─────────────────────────────────────────────────────────────────
