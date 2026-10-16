@@ -2383,7 +2383,8 @@ function rDashboard(C,A){
 function rReportes(C,A){
   const hoy=new Date(),hace7=new Date(hoy);hace7.setDate(hoy.getDate()-7);
   const fmt=d=>d.toISOString().slice(0,10);
-  A.innerHTML=`<button class="btn p" onclick="exportRExcel()">&#8681; Exportar Excel</button>`;
+  A.innerHTML=`<button class="btn p" onclick="exportRExcel()">&#8681; Exportar Excel</button>
+    <button class="btn" id="rr-money-btn" onclick="toggleRMoney()" style="display:none">💲 Ver en dinero</button>`;
   C.innerHTML=`<div class="rf">
     <div class="fg"><label>Módulo</label><select id="rm" onchange="updR()">
       <option value="ventas">Ventas</option>
@@ -2495,10 +2496,77 @@ async function updR(){
       <div class="sc"><div class="sl">Días</div><div class="sv">${dias.length}</div></div>
     </div>`;
 
+    // Guardar datos para toggle dinero
+    window._rPivot2=pivot2;
+    window._rSkusSorted=skusSorted;
+    window._rDiasNorm=diasNorm;
+    window._rNomProd=nomProd;
+    window._rMoneyMode=false;
+
+    // Mostrar botón dinero solo cuando hay precio de compra disponible
+    const moneyBtn=document.getElementById('rr-money-btn');
+    if(moneyBtn) moneyBtn.style.display='';
+
     if(pv)pv.innerHTML=skusSorted.length===0
       ?`<div class="es">Sin datos para el rango seleccionado</div>`
       :`<table><thead>${thead}</thead><tbody>${tbody}${totRow}</tbody></table>`;
   }catch(e){console.error(e);if(el)el.innerHTML=`<div class="es">Error al cargar datos</div>`;}
+}
+
+function toggleRMoney(){
+  const btn=document.getElementById('rr-money-btn');
+  const pv=document.getElementById('rr-pivot');
+  if(!pv||!window._rSkusSorted) return;
+
+  window._rMoneyMode=!window._rMoneyMode;
+  const money=window._rMoneyMode;
+  btn.textContent=money?'🔢 Ver en unidades':'💲 Ver en dinero';
+  btn.style.background=money?'var(--green)':'';
+  btn.style.color=money?'#fff':'';
+  btn.style.borderColor=money?'var(--green)':'';
+
+  const ac=activeC();
+  const pivot2=window._rPivot2, skusSorted=window._rSkusSorted;
+  const diasNorm=window._rDiasNorm, nomProd=window._rNomProd;
+  const fmtDia=d=>d.slice(8)+'/'+d.slice(5,7);
+  const fmt$=n=>'$'+Math.abs(n).toLocaleString('es-MX',{minimumFractionDigits:0,maximumFractionDigits:0});
+
+  const costo=sku=>ac?.precios[sku]||ac?.precios[String(sku)]||0;
+
+  const thead=`<tr><th class="fix-hd" style="width:52px">SKU</th><th class="fix-hd">Producto</th>${diasNorm.map(d=>`<th class="day-hd">${fmtDia(d)}</th>`).join('')}<th class="tot-hd">Total</th></tr>`;
+
+  const totCol2={};
+  diasNorm.forEach(d=>{ totCol2[d]=0; });
+
+  const tbody=skusSorted.map(sku=>{
+    const pc=costo(sku);
+    let rowTotal=0;
+    const cells=diasNorm.map(d=>{
+      const qty=pivot2[sku]?.[d]||0;
+      const val=money?qty*pc:qty;
+      rowTotal+=val;
+      totCol2[d]=(totCol2[d]||0)+val;
+      if(val===0) return `<td class="zero">-</td>`;
+      if(money){
+        const neg=val<0;
+        return `<td style="color:${neg?'var(--red)':'var(--green)'}">${neg?'-':''}${fmt$(val)}</td>`;
+      }
+      return `<td>${val.toLocaleString()}</td>`;
+    }).join('');
+    const totalFmt=money?(rowTotal<0?`<span style="color:var(--red)">-${fmt$(rowTotal)}</span>`:`<span style="color:var(--green)">${fmt$(rowTotal)}</span>`):rowTotal.toLocaleString();
+    return `<tr><td class="sku-col">${sku}</td><td class="pname">${nomProd[sku]||'-'}</td>${cells}<td class="tot-col">${totalFmt}</td></tr>`;
+  }).join('');
+
+  const grandTotal=Object.values(totCol2).reduce((a,b)=>a+b,0);
+  const totCells=diasNorm.map(d=>{
+    const v=totCol2[d]||0;
+    if(money) return `<td>${v<0?`-${fmt$(v)}`:fmt$(v)}</td>`;
+    return `<td>${v.toLocaleString()}</td>`;
+  }).join('');
+  const grandFmt=money?(grandTotal<0?`-${fmt$(grandTotal)}`:fmt$(grandTotal)):grandTotal.toLocaleString();
+  const totRow=`<tr class="total-row"><td class="sku-col"></td><td class="pname">TOTAL</td>${totCells}<td class="tot-col">${grandFmt}</td></tr>`;
+
+  pv.innerHTML=`<table><thead>${thead}</thead><tbody>${tbody}${totRow}</tbody></table>`;
 }
 
 function exportRExcel(){
