@@ -2197,6 +2197,9 @@ function setDias(sku,val,input){
 }
 
 // ── Reportes ───────────────────────────────────────────────────────────────
+const TIPO_BD={ventas:'venta',compras:'compra',devoluciones:'devolucion',mermas:'merma',cargas:'carga',nocargado:'nocargado',ajustes:'ajuste'};
+let _rData=[];
+
 function rReportes(C,A){
   const hoy=new Date(),hace7=new Date(hoy);hace7.setDate(hoy.getDate()-7);
   const fmt=d=>d.toISOString().slice(0,10);
@@ -2214,60 +2217,95 @@ function rReportes(C,A){
     <div class="fg"><label>Fecha inicio</label><input type="date" id="rf1" value="${fmt(hace7)}"></div>
     <div class="fg"><label>Fecha fin</label><input type="date" id="rf2" value="${fmt(hoy)}"></div>
     <button class="btn" onclick="updR()">Aplicar</button>
-  </div><div id="rr"><div class="es">Selecciona un rango y presiona Aplicar</div></div>`;
+  </div>
+  <style>
+    #rr-pivot{overflow-x:auto;margin-top:16px}
+    #rr-pivot table{border-collapse:collapse;font-size:12px;white-space:nowrap;min-width:100%}
+    #rr-pivot th,#rr-pivot td{padding:4px 10px;border:1px solid var(--border);text-align:right}
+    #rr-pivot th{background:var(--surface);font-weight:600}
+    #rr-pivot td.pname{text-align:left;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+    #rr-pivot td.sku-col{text-align:center;color:var(--muted);font-size:11px}
+    #rr-pivot tr:hover td{background:var(--hover)}
+    #rr-pivot th.day-hd{background:var(--primary);color:#fff;text-align:center}
+    #rr-pivot td.zero{color:var(--muted)}
+    #rr-pivot tr.total-row td{font-weight:700;background:var(--surface)}
+  </style>
+  <div id="rr"><div class="es">Selecciona un rango y presiona Aplicar</div></div>
+  <div id="rr-pivot"></div>`;
 }
-
-// Mapeo tipo frontend → tipo en BD
-const TIPO_BD={ventas:'venta',compras:'compra',devoluciones:'devolucion',mermas:'merma',cargas:'carga',nocargado:'nocargado',ajustes:'ajuste'};
-// Columnas a mostrar por módulo (campo BD → etiqueta)
-const R_COLS={
-  ventas:     [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Folio'}],
-  compras:    [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Factura'},{k:'costo',l:'Costo unit.'},{k:'grupo_importacion',l:'Grupo'}],
-  devoluciones:[{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Motivo'}],
-  mermas:     [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Motivo'}],
-  cargas:     [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'},{k:'folio',l:'Folio'}],
-  nocargado:  [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'}],
-  ajustes:    [{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad nueva'},{k:'folio',l:'Motivo'}],
-};
-let _rData=[];
 
 async function updR(){
   const mod=document.getElementById('rm')?.value||'ventas';
   const from=document.getElementById('rf1')?.value,to=document.getElementById('rf2')?.value;
-  const el=document.getElementById('rr');
-  if(!from||!to){if(el)el.innerHTML=`<div class="es">Selecciona fechas de inicio y fin</div>`;return;}
+  const el=document.getElementById('rr'), pv=document.getElementById('rr-pivot');
+  if(!from||!to){if(el)el.innerHTML=`<div class="es">Selecciona fechas</div>`;return;}
   if(el)el.innerHTML=`<div class="es">Cargando...</div>`;
+  if(pv)pv.innerHTML='';
   const tipo=TIPO_BD[mod]||mod;
   try{
-    // Traer todos los días del rango (un request por día sería costoso; traemos sin filtro de fecha en el endpoint y filtramos aquí)
-    // El endpoint acepta ?tipo=X, filtramos fecha en JS
     const rows=await apiFetch(`/api/movimientos?tipo=${tipo}&desde=${from}&hasta=${to}`);
-    _rData=rows.sort((a,b)=>a.fecha>b.fecha?1:-1);
-    const cols=R_COLS[mod]||[{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'}];
-    const tQ=_rData.reduce((a,r)=>a+Number(r.cantidad||0),0);
-    const dias=new Set(_rData.map(r=>r.fecha)).size;
-    const stats=`<div class="sr" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-      <div class="sc"><div class="sl">Total registros</div><div class="sv">${_rData.length}</div></div>
-      <div class="sc"><div class="sl">Total unidades</div><div class="sv">${tQ.toLocaleString()}</div></div>
-      <div class="sc"><div class="sl">Días</div><div class="sv">${dias}</div></div>
+    _rData=rows;
+
+    // Días únicos ordenados
+    const dias=[...new Set(_rData.map(r=>r.fecha))].sort();
+
+    // Nombres de productos desde variable global
+    const nomProd={};
+    if(typeof productos!=='undefined'&&Array.isArray(productos)){
+      productos.forEach(p=>{ nomProd[String(p.sku)]=p.nombre; });
+    }
+
+    // Pivot: {sku: {fecha: cantidad}}
+    const pivot={};
+    _rData.forEach(r=>{
+      const sku=String(r.sku);
+      if(!pivot[sku])pivot[sku]={};
+      pivot[sku][r.fecha]=(pivot[sku][r.fecha]||0)+Number(r.cantidad||0);
+    });
+
+    const skusSorted=Object.keys(pivot).sort((a,b)=>Number(a)-Number(b));
+    const fmtDia=d=>d.slice(8)+'/'+d.slice(5,7); // DD/MM
+
+    // Totales por columna
+    const totCol={};
+    dias.forEach(d=>{
+      totCol[d]=skusSorted.reduce((s,sku)=>s+(pivot[sku]?.[d]||0),0);
+    });
+
+    const thead=`<tr><th>SKU</th><th>Producto</th>${dias.map(d=>`<th class="day-hd">${fmtDia(d)}</th>`).join('')}<th class="day-hd">Total</th></tr>`;
+
+    const tbody=skusSorted.map(sku=>{
+      let rowTotal=0;
+      const cells=dias.map(d=>{
+        const v=pivot[sku]?.[d]||0;
+        rowTotal+=v;
+        return `<td class="${v===0?'zero':''}">${v===0?'-':v.toLocaleString()}</td>`;
+      }).join('');
+      return `<tr><td class="sku-col">${sku}</td><td class="pname">${nomProd[sku]||'-'}</td>${cells}<td>${rowTotal.toLocaleString()}</td></tr>`;
+    }).join('');
+
+    const totRow=`<tr class="total-row"><td colspan="2">TOTAL</td>${dias.map(d=>`<td>${(totCol[d]||0).toLocaleString()}</td>`).join('')}<td>${Object.values(totCol).reduce((a,b)=>a+b,0).toLocaleString()}</td></tr>`;
+
+    const totalUnidades=_rData.reduce((a,r)=>a+Number(r.cantidad||0),0);
+    if(el)el.innerHTML=`<div class="sr" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">
+      <div class="sc"><div class="sl">Registros</div><div class="sv">${_rData.length}</div></div>
+      <div class="sc"><div class="sl">Total unidades</div><div class="sv">${totalUnidades.toLocaleString()}</div></div>
+      <div class="sc"><div class="sl">Días</div><div class="sv">${dias.length}</div></div>
     </div>`;
-    const table=_rData.length===0
-      ?`<div class="tw"><div class="es">Sin datos para el rango seleccionado</div></div>`
-      :`<div class="tw"><table><thead><tr>${cols.map(c=>`<th>${c.l}</th>`).join('')}</tr></thead>
-         <tbody>${_rData.map(r=>`<tr>${cols.map(c=>`<td>${r[c.k]??'-'}</td>`).join('')}</tr>`).join('')}</tbody>
-        </table></div>`;
-    if(el)el.innerHTML=stats+table;
-  }catch(e){if(el)el.innerHTML=`<div class="es">Error al cargar datos</div>`;}
+
+    if(pv)pv.innerHTML=skusSorted.length===0
+      ?`<div class="es">Sin datos para el rango seleccionado</div>`
+      :`<table><thead>${thead}</thead><tbody>${tbody}${totRow}</tbody></table>`;
+  }catch(e){console.error(e);if(el)el.innerHTML=`<div class="es">Error al cargar datos</div>`;}
 }
 
 function exportRExcel(){
   if(!_rData||_rData.length===0){toast('Sin datos para exportar');return;}
   const mod=document.getElementById('rm')?.value||'reporte';
   const from=document.getElementById('rf1')?.value||'',to=document.getElementById('rf2')?.value||'';
-  const cols=R_COLS[mod]||[{k:'fecha',l:'Fecha'},{k:'sku',l:'SKU'},{k:'cantidad',l:'Cantidad'}];
   const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;
-  const header=cols.map(c=>esc(c.l)).join(',');
-  const rows=_rData.map(r=>cols.map(c=>esc(r[c.k]??'')).join(','));
+  const header=[esc('Fecha'),esc('SKU'),esc('Cantidad'),esc('Folio')].join(',');
+  const rows=_rData.map(r=>[esc(r.fecha),esc(r.sku),esc(r.cantidad),esc(r.folio||'')].join(','));
   const csv='﻿'+[header,...rows].join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
