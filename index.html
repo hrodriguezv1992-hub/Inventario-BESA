@@ -473,7 +473,7 @@ function showMod(title,body,footer){
 function nav(page){
   curPage=page;
   document.querySelectorAll('.ni').forEach(el=>el.classList.toggle('active',el.getAttribute('onclick')===`nav('${page}')`));
-  const T={inv:'Inventario diario',ordenes:'Órdenes de compra',pteliquidar:'Pendiente Liquidar',logreport:'Log Report',usuarios:'Control de usuarios',equivalencias:'Equivalencias XML',conteos:'Conteos',pedido:'Pedido',productos:'Productos',compras:'Compras',ventas:'Ventas',cargas:'Cargas',devoluciones:'Devoluciones',mermas:'Mermas',nocargado:'No cargado',ajustes:'Ajustes',precios:'Lista de precios',reportes:'Reportes'};
+  const T={dashboard:'Dashboard',inv:'Inventario diario',ordenes:'Órdenes de compra',pteliquidar:'Pendiente Liquidar',logreport:'Log Report',usuarios:'Control de usuarios',equivalencias:'Equivalencias XML',conteos:'Conteos',pedido:'Pedido',productos:'Productos',compras:'Compras',ventas:'Ventas',cargas:'Cargas',devoluciones:'Devoluciones',mermas:'Mermas',nocargado:'No cargado',ajustes:'Ajustes',precios:'Lista de precios',reportes:'Reportes'};
   document.getElementById('ptitle').textContent=T[page]||page;
   rPage(page);
 }
@@ -490,6 +490,7 @@ function rPage(p){
   else if(p==='pedido')rPedido(C,A);
   else if(p==='productos')rProductos(C,A);
   else if(p==='reportes')rReportes(C,A);
+  else if(p==='dashboard')rDashboard(C,A);
   else rMov(p,C,A);
 }
 
@@ -2200,6 +2201,156 @@ function setDias(sku,val,input){
 // ── Reportes ───────────────────────────────────────────────────────────────
 const TIPO_BD={ventas:'venta',compras:'compra',devoluciones:'devolucion',mermas:'merma',cargas:'carga',nocargado:'nocargado',ajustes:'ajuste'};
 let _rData=[];
+
+// ══════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════
+function rDashboard(C,A){
+  A.innerHTML='';
+  const ac=activeC();
+  const now=new Date();
+  const mesStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+
+  // Recopilar todos los días del mes actual
+  const diasMes=Object.entries(DD).filter(([f])=>f.startsWith(mesStr)&&!DD[f].diaSaltado);
+
+  // ── 1. Ventas acumuladas del mes por SKU ──────────────────────────────
+  const ventasMes={};
+  diasMes.forEach(([,d])=>{
+    (d.ventas||[]).forEach(v=>{
+      ventasMes[v.sku]=(ventasMes[v.sku]||0)+Number(v.qty||0);
+    });
+  });
+  const top10ventas=Object.entries(ventasMes)
+    .map(([sku,qty])=>({sku,qty,name:PRODS.find(p=>String(p.sku)===String(sku))?.name||sku}))
+    .sort((a,b)=>b.qty-a.qty).slice(0,10);
+
+  // ── 2. No cargado del mes por SKU ─────────────────────────────────────
+  const nocargadoMes={};
+  diasMes.forEach(([,d])=>{
+    (d.nocargado||[]).forEach(v=>{
+      nocargadoMes[v.sku]=(nocargadoMes[v.sku]||0)+Number(v.qty||0);
+    });
+  });
+  const top10nocargado=Object.entries(nocargadoMes)
+    .map(([sku,qty])=>({sku,qty,name:PRODS.find(p=>String(p.sku)===String(sku))?.name||sku}))
+    .sort((a,b)=>b.qty-a.qty).slice(0,10);
+
+  // ── 3. Ajustes del mes en dinero ──────────────────────────────────────
+  let ajustesDinero=0;
+  diasMes.forEach(([,d])=>{
+    (d.ajustes||[]).forEach(a=>{
+      const costo=ac?.precios[a.sku]||ac?.precios[String(a.sku)]||0;
+      ajustesDinero+=Number(a.diff||0)*costo;
+    });
+  });
+
+  // ── 4. Mermas del mes en dinero ───────────────────────────────────────
+  let mermasDinero=0;
+  diasMes.forEach(([,d])=>{
+    (d.mermas||[]).forEach(m=>{
+      const costo=ac?.precios[m.sku]||ac?.precios[String(m.sku)]||0;
+      mermasDinero+=Number(m.qty||0)*costo;
+    });
+  });
+
+  // ── 5. Valoración teórica actual ──────────────────────────────────────
+  let valoracionTeorica=0;
+  PRODS.forEach(p=>{
+    const costo=ac?.precios[p.sku]||ac?.precios[String(p.sku)]||0;
+    valoracionTeorica+=p.stock*costo;
+  });
+
+  // ── 6. Días de inventario por SKU ─────────────────────────────────────
+  // Ventas promedio diario = total ventas mes / días con ventas
+  const diasConVentas=diasMes.filter(([,d])=>(d.ventas||[]).length>0).length||1;
+  const diasData=PRODS.filter(p=>p.stock>0).map(p=>{
+    const vMes=ventasMes[String(p.sku)]||ventasMes[p.sku]||0;
+    const promDia=vMes/diasConVentas;
+    const dias=promDia>0?Math.round(p.stock/promDia):null;
+    const costo=ac?.precios[p.sku]||0;
+    return {sku:p.sku,name:p.name,stock:p.stock,dias,costo};
+  }).filter(x=>x.dias!==null);
+
+  const top10masDias=diasData.sort((a,b)=>b.dias-a.dias).slice(0,10);
+  const top10menosDias=[...diasData].sort((a,b)=>a.dias-b.dias).slice(0,10);
+
+  // ── 7. Órdenes pendientes ─────────────────────────────────────────────
+  const ordenesPend=ORDENES.filter(o=>o.estado==='Pendiente');
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  const kpiColor=(v,positivo)=>{
+    if(v===0)return'var(--tx2)';
+    return(positivo?v>0:v<0)?'var(--green)':'var(--red)';
+  };
+
+  const tablaTop=(rows,col)=>`
+    <table style="width:100%;font-size:13px;border-collapse:collapse">
+      <thead><tr style="color:var(--tx3);font-size:11px;text-transform:uppercase">
+        <th style="text-align:left;padding:4px 0">Producto</th>
+        <th style="text-align:right;padding:4px 0">${col}</th>
+      </tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="border-top:1px solid var(--bd)">
+        <td style="padding:5px 0;color:var(--tx1)"><span style="color:var(--tx3);margin-right:6px">${i+1}.</span>${r.name}</td>
+        <td style="text-align:right;font-weight:600;color:var(--tx1)">${r.qty!==undefined?r.qty.toLocaleString('es-MX'):r.dias+' días'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+
+  const card=(title,content,extra='')=>`
+    <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:18px 20px;${extra}">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:12px">${title}</div>
+      ${content}
+    </div>`;
+
+  const kpiCard=(title,valor,sub='',color='var(--tx1)')=>`
+    <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:18px 20px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);margin-bottom:8px">${title}</div>
+      <div style="font-size:26px;font-weight:700;color:${color}">${valor}</div>
+      ${sub?`<div style="font-size:12px;color:var(--tx3);margin-top:4px">${sub}</div>`:''}
+    </div>`;
+
+  const fmt$=n=>'$'+Math.abs(n).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  C.innerHTML=`
+    <div style="display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));padding:4px 0">
+
+      ${kpiCard('Valoración teórica inventario',fmt$(valoracionTeorica),
+        ac?'A precio de compra vigente':'Sin lista de precios activa',
+        'var(--blue)')}
+
+      ${kpiCard('Ajustes del mes',
+        (ajustesDinero>=0?'+':'')+fmt$(ajustesDinero).replace('$',ajustesDinero<0?'-$':'$'),
+        diasMes.length+' días cerrados en el mes',
+        ajustesDinero<0?'var(--red)':ajustesDinero>0?'var(--green)':'var(--tx2)')}
+
+      ${kpiCard('Mermas del mes',
+        '-'+fmt$(mermasDinero),
+        'Pérdida registrada a precio de compra',
+        mermasDinero>0?'var(--red)':'var(--tx2)')}
+
+      ${kpiCard('OC pendientes de surtir',
+        ordenesPend.length,
+        ordenesPend.length===0?'Todo surtido':ordenesPend.map(o=>o.folio).join(', '),
+        ordenesPend.length>0?'var(--amber)':'var(--green)')}
+
+      ${card('Top 10 — Más vendidos del mes',
+        top10ventas.length?tablaTop(top10ventas,'Unidades'):'<p style="color:var(--tx3);font-size:13px">Sin ventas registradas este mes</p>',
+        'grid-column:span 2')}
+
+      ${card('Top 10 — Más días de inventario',
+        top10masDias.length?tablaTop(top10masDias,'Días'):'<p style="color:var(--tx3);font-size:13px">Sin datos suficientes</p>',
+        'grid-column:span 2')}
+
+      ${card('Top 10 — Menos días de inventario 🔴',
+        top10menosDias.length?tablaTop(top10menosDias,'Días'):'<p style="color:var(--tx3);font-size:13px">Sin datos suficientes</p>',
+        'grid-column:span 2')}
+
+      ${card('Top 10 — No cargado del mes',
+        top10nocargado.length?tablaTop(top10nocargado,'Unidades'):'<p style="color:var(--tx3);font-size:13px">Sin registros de no cargado este mes</p>',
+        'grid-column:span 2')}
+
+    </div>`;
+}
 
 function rReportes(C,A){
   const hoy=new Date(),hace7=new Date(hoy);hace7.setDate(hoy.getDate()-7);
@@ -4186,6 +4337,7 @@ function exportarTodasOC(){
 function buildSidebar(user){
   const NAV_ITEMS = [
     {sec:'Principal', items:[
+      {id:'dashboard',label:'🏠 Dashboard'},
       {id:'inv',      label:'📊 Inventario diario'},
       {id:'conteos',  label:'🔢 Conteos'},
       {id:'pedido',   label:'🛒 Pedido'},
