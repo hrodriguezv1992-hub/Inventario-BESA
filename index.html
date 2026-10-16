@@ -2255,10 +2255,10 @@ async function updR(){
     // Días únicos ordenados
     const dias=[...new Set(_rData.map(r=>r.fecha))].sort();
 
-    // Nombres de productos desde variable global
+    // Nombres de productos desde variable global PRODS
     const nomProd={};
-    if(typeof productos!=='undefined'&&Array.isArray(productos)){
-      productos.forEach(p=>{ nomProd[String(p.sku)]=p.nombre; });
+    if(typeof PRODS!=='undefined'&&Array.isArray(PRODS)){
+      PRODS.forEach(p=>{ nomProd[String(p.sku)]=p.name; });
     }
 
     // Pivot: {sku: {fecha: cantidad}}
