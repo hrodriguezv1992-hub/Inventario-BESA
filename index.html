@@ -1484,7 +1484,8 @@ function ejecutarCierreDia(){
     const pte=pteEntry?Number(pteEntry.qty):0;
     const cargas=sm('cargas');
     const invFinal=piso+pte+cargas;
-    const diff=invFinal-teo;
+    // diff = (conteo + pte) - teórico, sin incluir cargas (consistente con columna Diferencia de la vista)
+    const diff=(piso+pte)-teo;
     if(diff!==0){
       if(!d.ajustes)d.ajustes=[];
       d.ajustes.push({id:uid(),sku:p.sku,name:p.name,qty_antes:teo,qty_despues:invFinal,diff,
@@ -1521,7 +1522,7 @@ async function guardarMovimientosCierre(fecha, d, silencioso=false){
   for(const {mod,tipo,folioF,grupoF} of MODS){
     const items=(d[mod]||[]).map(r=>({
       sku: r.sku,
-      cantidad: Number(r.qty||r.qty_despues||0),
+      cantidad: mod==='ajustes' ? Number(r.diff||0) : Number(r.qty||r.qty_despues||0),
       folio: r[folioF]||null,
       costo: r.costo||null,
       grupo_importacion: grupoF?r[grupoF]||null:null,
