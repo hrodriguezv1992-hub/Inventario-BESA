@@ -4243,13 +4243,15 @@ function doLogout(){
 
 // ── Recarga automática de datos cada 30 segundos ──────────────────────────
 let _autoReloadPaused = false;
+// Módulos que NO deben re-renderizarse en el auto-refresh (el usuario puede estar interactuando)
+const _NO_AUTORRENDER = new Set(['reportes','inv','conteos']);
 setInterval(async () => {
   if(_autoReloadPaused || !Auth.isLoggedIn()) return;
   try {
     await DB._loadAll();
-    // Refresca la página actual silenciosamente
+    // Solo re-renderiza módulos simples — nunca reportes ni inventario diario
     const page = document.querySelector('.ni.active')?.getAttribute('onclick')?.match(/nav\('(\w+)'\)/)?.[1];
-    if(page) rPage(page);
+    if(page && !_NO_AUTORRENDER.has(page)) rPage(page);
   } catch(e){ /* silencioso */ }
 }, 30000);
 </script>
