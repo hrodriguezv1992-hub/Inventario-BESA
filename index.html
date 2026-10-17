@@ -2233,7 +2233,7 @@ let _rData=[];
 // ══════════════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════
-function rDashboard(C,A){
+async function rDashboard(C,A){
   A.innerHTML='';
   const ac=activeC();
   const now=new Date();
@@ -2264,23 +2264,24 @@ function rDashboard(C,A){
     .map(([sku,qty])=>({sku,qty,name:PRODS.find(p=>String(p.sku)===String(sku))?.name||sku}))
     .sort((a,b)=>b.qty-a.qty).slice(0,10);
 
-  // ── 3. Ajustes del mes en dinero ──────────────────────────────────────
-  let ajustesDinero=0;
-  diasMes.forEach(([,d])=>{
-    (d.ajustes||[]).forEach(a=>{
-      const costo=ac?.precios[a.sku]||ac?.precios[String(a.sku)]||0;
-      ajustesDinero+=Number(a.diff||0)*costo;
+  // ── 3 & 4. Ajustes y mermas del mes en dinero — desde BD (fuente única) ──
+  const mesDesde=mesStr+'-01';
+  const mesHasta=mesStr+'-31';
+  let ajustesDinero=0, mermasDinero=0;
+  try{
+    const [rowsAj, rowsM] = await Promise.all([
+      apiFetch(`/api/movimientos?tipo=ajuste&desde=${mesDesde}&hasta=${mesHasta}`),
+      apiFetch(`/api/movimientos?tipo=merma&desde=${mesDesde}&hasta=${mesHasta}`)
+    ]);
+    rowsAj.forEach(r=>{
+      const costo=ac?.precios[r.sku]||ac?.precios[String(r.sku)]||0;
+      ajustesDinero+=Number(r.cantidad||0)*costo;
     });
-  });
-
-  // ── 4. Mermas del mes en dinero ───────────────────────────────────────
-  let mermasDinero=0;
-  diasMes.forEach(([,d])=>{
-    (d.mermas||[]).forEach(m=>{
-      const costo=ac?.precios[m.sku]||ac?.precios[String(m.sku)]||0;
-      mermasDinero+=Number(m.qty||0)*costo;
+    rowsM.forEach(r=>{
+      const costo=ac?.precios[r.sku]||ac?.precios[String(r.sku)]||0;
+      mermasDinero+=Number(r.cantidad||0)*costo;
     });
-  });
+  }catch(e){ console.warn('Dashboard: error cargando ajustes/mermas de BD',e); }
 
   // ── 5. Valoración teórica actual ──────────────────────────────────────
   let valoracionTeorica=0;
