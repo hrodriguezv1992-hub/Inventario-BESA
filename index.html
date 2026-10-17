@@ -2571,16 +2571,44 @@ function toggleRMoney(){
 }
 
 function exportRExcel(){
-  if(!_rData||_rData.length===0){toast('Sin datos para exportar');return;}
+  if(!window._rSkusSorted||window._rSkusSorted.length===0){toast('Sin datos para exportar');return;}
   const mod=document.getElementById('rm')?.value||'reporte';
   const from=document.getElementById('rf1')?.value||'',to=document.getElementById('rf2')?.value||'';
+  const money=window._rMoneyMode||false;
+  const ac=activeC();
+  const pivot2=window._rPivot2, skusSorted=window._rSkusSorted;
+  const diasNorm=window._rDiasNorm, nomProd=window._rNomProd;
+  const fmtDia=d=>d.slice(8)+'/'+d.slice(5,7);
+  const costo=sku=>ac?.precios[sku]||ac?.precios[String(sku)]||0;
   const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;
-  const header=[esc('Fecha'),esc('SKU'),esc('Cantidad'),esc('Folio')].join(',');
-  const rows=_rData.map(r=>[esc(r.fecha),esc(r.sku),esc(r.cantidad),esc(r.folio||'')].join(','));
-  const csv='﻿'+[header,...rows].join('\r\n');
+
+  // Header: SKU, Producto, [días...], Total
+  const header=[esc('SKU'),esc('Producto'),...diasNorm.map(d=>esc(fmtDia(d))),esc('Total')].join(',');
+
+  const totCol={};
+  diasNorm.forEach(d=>{ totCol[d]=0; });
+
+  const rows=skusSorted.map(sku=>{
+    const pc=costo(sku);
+    let rowTotal=0;
+    const cells=diasNorm.map(d=>{
+      const qty=pivot2[sku]?.[d]||0;
+      const val=money?qty*pc:qty;
+      rowTotal+=val;
+      totCol[d]=(totCol[d]||0)+val;
+      return val===0?'':val;
+    });
+    return [esc(sku),esc(nomProd[sku]||sku),...cells.map(v=>esc(v)),esc(rowTotal)].join(',');
+  });
+
+  const grandTotal=Object.values(totCol).reduce((a,b)=>a+b,0);
+  const totRow=[esc(''),esc('TOTAL'),...diasNorm.map(d=>esc(totCol[d]||0)),esc(grandTotal)].join(',');
+
+  const suffix=money?'_dinero':'_unidades';
+  const csv='﻿'+[header,...rows,totRow].join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download=`reporte_${mod}_${from}_${to}.csv`;
+  const a=document.createElement('a');a.href=url;a.download=`reporte_${mod}${suffix}_${from}_${to}.csv`;
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
   toast('Archivo descargado');
 }
